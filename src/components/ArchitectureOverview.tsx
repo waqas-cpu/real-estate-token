@@ -1,5 +1,4 @@
-import React from 'react';
-import { Database, Brain, Lock, Zap, ArrowRight, Shield, Cpu, Key, Users } from 'lucide-react';
+import { Database, Brain, Lock, Zap, Shield } from 'lucide-react';
 
 export default function ArchitectureOverview() {
   return (
@@ -156,7 +155,7 @@ export default function ArchitectureOverview() {
       <div className="bg-gradient-to-r from-emerald-900/20 to-transparent border border-emerald-500/20 rounded-lg p-6">
         <h2 className="text-lg font-bold text-emerald-400 mb-3">First Principle</h2>
         <p className="text-sm text-slate-300">
-          A real-world asset cannot be tokenized until its physical reality is unambiguously mapped to an on-chain identifier. Every layer exists to preserve that mapping's integrity across time, transfers, and adversarial conditions.
+          A real-world asset cannot be tokenized until its physical reality is unambiguously mapped to an on-chain identifier. Every layer exists to preserve that mapping's integrity across time,[...]
         </p>
       </div>
     </div>
