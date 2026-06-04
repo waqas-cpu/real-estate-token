@@ -1,15 +1,18 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from './supabase';
+import { setBackendAccessToken } from './backendClient';
 import type { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
   userRole: 'investor' | 'issuer' | 'admin';
+  investorWallet: string;
   loading: boolean;
   signUp: (email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   setUserRole: (role: 'investor' | 'issuer' | 'admin') => void;
+  setInvestorWallet: (wallet: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -17,16 +20,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [userRole, setUserRole] = useState<'investor' | 'issuer' | 'admin'>('investor');
+  const [investorWallet, setInvestorWalletState] = useState('');
   const [loading, setLoading] = useState(true);
+
+  const setInvestorWallet = (wallet: string) => {
+    setInvestorWalletState(wallet);
+    localStorage.setItem('investorWallet', wallet);
+  };
 
   useEffect(() => {
     (async () => {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        setUser(user || null);
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user || null);
+        setBackendAccessToken(session?.access_token ?? null);
 
         const storedRole = localStorage.getItem('userRole') as 'investor' | 'issuer' | 'admin' | null;
         if (storedRole) setUserRole(storedRole);
+        const storedWallet = localStorage.getItem('investorWallet');
+        if (storedWallet) setInvestorWalletState(storedWallet);
       } catch (error) {
         console.error('Auth initialization error:', error);
       } finally {
@@ -34,8 +46,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user || null);
+      setBackendAccessToken(session?.access_token ?? null);
       if (!session?.user) {
         localStorage.removeItem('userRole');
       }
@@ -94,11 +107,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         user,
         userRole,
+        investorWallet,
         loading,
         signUp,
         signIn,
         signOut,
         setUserRole: updateUserRole,
+        setInvestorWallet,
       }}
     >
       {children}

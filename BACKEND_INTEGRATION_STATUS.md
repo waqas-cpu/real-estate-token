@@ -1,14 +1,78 @@
 # Backend Integration Status
 
-**Version**: 1.1.0  
-**Status**: Ready for API Integration  
+**Version**: 1.3.0  
+**Status**: Testnet-aligned API (mainnet-ready profile)  
 **Last Updated**: 2026-05-29
+
+---
+
+## Testnet → mainnet alignment
+
+See **[TESTNET_ALIGNMENT.md](./TESTNET_ALIGNMENT.md)** for the full profile matrix.
+
+| Capability | Testnet | Mainnet path |
+|------------|---------|--------------|
+| `RWA_NETWORK_PROFILE` | `testnet` (default) | `mainnet` |
+| Registries / oracles / MLS | Fixtures + optional live APIs | Live APIs required |
+| IPFS | Pinata when `PINATA_JWT` set | Production Pinata |
+| Twin CID on-chain | `RwaTwinAnchor` + `anchor:twin` script | Same contract (audited) |
+| ZK verifier | `RwaZkVerifierStub` from deploy | UltraPlonk / Noir |
+| ERC-3643 | `npm run deploy:sepolia` | Audit + `ALLOW_MAINNET_DEPLOY` |
+| Intelligence | Auto-approve default | Human approval |
+| FATF / accreditation | DB + `/api/regulatory/*` | VASP + live registries |
+
+**Migrations:** apply `001`–`005` (`005_testnet_alignment` adds twin anchors, travel rule, accreditation).
+
+---
+
+## Production Guide Alignment
+
+This backend follows the same rollout as **ARCHITECTURE.md Part 5**, **IMPLEMENTATION_GUIDE.md** (Phases 1–8), and **DEPLOYMENT_READY.md**.
+
+| Phase | Guide reference | Implementation |
+|-------|-----------------|----------------|
+| 1 | Database & infrastructure | `supabase/migrations/001_rwa_tokenization_schema.sql` |
+| 2 | Off-chain services | `backend/` Express API, pipeline orchestration |
+| 3 | PQC cryptography | `@noble/post-quantum` ML-DSA-87 / ML-KEM-1024 / SLH-DSA + L2 settlement intents |
+| 4 | ZK system | Testnet `RwaZkVerifierStub`; mainnet UltraPlonk TBD |
+| 5 | Smart contracts | **ERC-3643 T-REX** deploy via Hardhat; API deploy gated (`ALLOW_SMART_CONTRACT_DEPLOY`) |
+| 6 | Integration testing | `npm run test:backend` (gate unit tests) |
+| 7 | Regulatory | Compliance rules in DB + `ComplianceRuleEngine` |
+| 8 | Production hardening | Rate limits, security headers, request logging, `/health/ready` |
+
+**Live checklist:** `GET http://localhost:3001/health/deployment-checklist`
+
+**Token economics (owner approval):** `backend/TOKEN_ECONOMICS.md` · `GET /api/token-economics/policy`
+
+---
+
+## Complete Backend API (Execution Layer)
+
+| Method | Endpoint | Guide reference |
+|--------|----------|-----------------|
+| POST | `/api/assets/ingest` | IMPLEMENTATION Phase 2 |
+| POST | `/api/assets/:id/intelligence` | Phase 3 |
+| POST | `/api/assets/pipeline` | Full off-chain cycle |
+| POST | `/api/kyc/verify` | Phase 4 |
+| GET | `/api/token-economics/policy` | **Economics — notify owner** |
+| POST | `/api/token-economics/preview` | FMV-based preview only |
+| POST | `/api/admin/tokenize` | Phase 5 metadata (+ economics confirm) |
+| POST | `/api/offerings` | Primary market |
+| POST | `/api/offerings/:id/activate` | Open offering |
+| POST | `/api/investments/subscribe` | Subscriptions (off-chain) |
+| POST | `/api/offerings/:id/settle` | Pro-rata allocation |
+| POST | `/api/governance/proposals` | DAO proposals |
+| POST | `/api/governance/vote` | Quadratic vote (off-chain) |
+| POST | `/api/distributions` | Income distribution |
+| GET | `/api/execution/deployment-policy` | Smart contracts — owner approval |
+
+Migration `002_offering_subscriptions.sql`: `offering_subscriptions`, `governance_votes`.
 
 ---
 
 ## Overview
 
-The RealEstate Token platform now has complete backend integration infrastructure. All frontend components are ready to connect to Supabase services.
+The platform has a **production Express API** (`backend/`) plus **direct Supabase** access from the frontend. Set `VITE_API_BASE_URL` to route reads through the API per **DEPLOYMENT_READY.md Phase 2**.
 
 ---
 
@@ -177,12 +241,20 @@ Documentation/
 
 ## Environment Variables Required
 
-Create `.env` file in project root:
+Copy `.env.example` → `.env` (frontend) and `backend/.env.example` → `backend/.env`:
 
 ```env
-# Supabase Configuration
+# Frontend
 VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key-from-supabase
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_API_BASE_URL=http://localhost:3001
+
+# Backend (IMPLEMENTATION_GUIDE + ARCHITECTURE Phase 8)
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+RATE_LIMIT_MAX=100
+AUDIT_API_CALLS=true
+ALLOW_SMART_CONTRACT_DEPLOY=false
 ```
 
 **Where to find:**
@@ -210,13 +282,17 @@ echo "VITE_SUPABASE_ANON_KEY=your-key" >> .env
 npm install
 ```
 
-### 3. Run Dev Server
+### 3. Run Dev Servers
 
 ```bash
+# Terminal 1 — API (Phase 2)
+npm run dev:backend
+
+# Terminal 2 — Frontend
 npm run dev
 ```
 
-App opens at http://localhost:5173
+App: http://localhost:5173 · API: http://localhost:3001 · Checklist: http://localhost:3001/health/deployment-checklist
 
 ### 4. Test Authentication
 

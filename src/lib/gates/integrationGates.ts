@@ -7,7 +7,9 @@
  * Every crossing is cryptographically signed.
  */
 
-import { ValidationRule, LayerBoundary, LayerName } from '../types/architecture';
+import { LayerBoundary, LayerName } from '../types/architecture';
+import { hashContent, hashAssetIntegrity } from '../utils/hash';
+import { resolveNetworkProfile } from '../config/networkProfile';
 
 // Gate 1: DATA → INTELLIGENCE
 // Rule: No valuation without verified oracle attestation
@@ -33,7 +35,22 @@ export const DATA_TO_INTELLIGENCE_GATE = {
       name: 'Digital Twin Anchor',
       description: 'Twin must be IPFS-anchored and CID on-chain before intelligence processing',
       validate: async (context: any) => {
-        return !!(context.twin?.cid && context.twin?.verified);
+        const twin = context.twin;
+        const hasCid = !!twin?.cid;
+        const verified = twin?.verified === undefined ? true : twin.verified;
+        if (!hasCid || !verified) return false;
+
+        const profile = resolveNetworkProfile();
+        const anchor = twin.schema?.onChainAnchor ?? twin.onChainAnchor;
+        if (profile.requireAnchoredTwinOnChain) {
+          return anchor?.status === 'anchored' && !!anchor?.txHash;
+        }
+        // Testnet: CID + anchor record (pending ok if contract configured)
+        return (
+          !!anchor?.cid &&
+          anchor.cid === twin.cid &&
+          (!!anchor.contractAddress || anchor.status === 'anchored')
+        );
       },
       severity: 'BLOCK',
     },
@@ -43,7 +60,8 @@ export const DATA_TO_INTELLIGENCE_GATE = {
       description: 'SHA3-512 hash must match source records',
       validate: async (context: any) => {
         const asset = context.asset;
-        const calculated = await calculateSHA3(JSON.stringify(asset));
+        if (!asset?.contentHash) return false;
+        const calculated = hashAssetIntegrity(asset);
         return calculated === asset.contentHash;
       },
       severity: 'BLOCK',
@@ -255,14 +273,10 @@ function selectGate(
   return gates[key] || null;
 }
 
-// Helper: Calculate SHA3-512
 async function calculateSHA3(data: string): Promise<string> {
-  // Placeholder - use crypto-js or similar in production
-  return 'sha3_' + Math.random().toString(36).substr(2, 9);
+  return hashContent(data);
 }
 
-// Helper: Hash data for proof
 async function hashData(data: Record<string, unknown>): Promise<string> {
-  // Placeholder
-  return 'hash_' + Math.random().toString(36).substr(2, 9);
+  return hashContent(JSON.stringify(data));
 }

@@ -1,0 +1,7 @@
+# Supabase CLI — link then push migrations:
+#   npx supabase link --project-ref wjliwhjrfnnfqygflgqj
+#   npx supabase db push
+project_id = "jvstdfjzszivkjrrsbbq"
+
+[db]
+major_version = 15

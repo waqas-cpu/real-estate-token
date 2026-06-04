@@ -5,12 +5,24 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:backend": "npm run dev --prefix backend",
+    "start": "npm run build && npm run start --prefix backend",
+    "dev:app": "npm run build && npm run dev --prefix backend",
     "build": "vite build",
+    "build:backend": "npm run build --prefix backend",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "typecheck:backend": "npm run typecheck --prefix backend",
+    "test:backend": "npm run test --prefix backend",
+    "smoke:e2e": "npm run smoke:e2e --prefix backend",
+    "prod:check": "npm run typecheck:backend && npm run test:backend",
+    "contracts:compile": "npm run compile --prefix contracts",
+    "contracts:test": "npm run test --prefix contracts",
+    "deploy:testnet": "npm run deploy:sepolia --prefix contracts"
   },
   "dependencies": {
+    "@noble/post-quantum": "^0.6.1",
     "@supabase/supabase-js": "^2.57.4",
     "lucide-react": "^0.344.0",
     "react": "^18.3.1",

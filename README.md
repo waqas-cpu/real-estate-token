@@ -27,6 +27,16 @@ npm run dev
 # Opens http://localhost:5173
 ```
 
+### Production deployment
+
+See **[PRODUCTION_RUNBOOK.md](./PRODUCTION_RUNBOOK.md)** for Supabase, Docker, smoke E2E, and go-live checklist.
+
+```bash
+npm run prod:check      # typecheck + backend tests (from repo with deps installed)
+npm run smoke:e2e       # full DB pipeline (requires backend/.env)
+docker compose up --build
+```
+
 ### Production Build
 ```bash
 npm run build

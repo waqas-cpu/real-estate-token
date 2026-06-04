@@ -1,11 +1,11 @@
 /**
  * INTELLIGENCE LAYER - Verified Data → Trusted Signals
  * =====================================================
- * Responsible for:
- * - AI/ML valuation models with uncertainty quantification
- * - Multi-dimensional risk scoring
- * - KYC/AML compliance checking
- * - Jurisdiction-specific rule mapping
+ * Legacy deterministic engines (hedonic/risk/KYC stubs).
+ *
+ * Production API uses the **agentic** path in `backend/src/agents/intelligence/`
+ * (tool loop, traces, human approval, optional LLM synthesis). Set
+ * INTELLIGENCE_AGENT_MODE=false to force this module only.
  */
 
 import {

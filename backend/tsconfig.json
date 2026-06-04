@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "src/**/*",
+    "../src/lib/layers/**/*",
+    "../src/lib/gates/**/*",
+    "../src/lib/types/**/*",
+    "../src/lib/utils/**/*",
+    "../src/lib/crypto/**/*",
+    "../src/lib/config/**/*"
+  ]
+}

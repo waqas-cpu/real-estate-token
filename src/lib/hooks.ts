@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import * as api from './api';
+import * as api from './dataSource';
 
 interface UseQueryState<T> {
   data: T | null;
@@ -7,8 +7,13 @@ interface UseQueryState<T> {
   error: Error | null;
 }
 
+export type MarketplaceBundle = {
+  assets: api.PhysicalAsset[];
+  summaries: Record<string, api.MarketplaceSummary>;
+};
+
 export function useAssets() {
-  const [state, setState] = useState<UseQueryState<api.PhysicalAsset[]>>({
+  const [state, setState] = useState<UseQueryState<MarketplaceBundle>>({
     data: null,
     loading: true,
     error: null,
@@ -96,7 +101,7 @@ export function useAssetRiskScore(assetId: string | null) {
     (async () => {
       try {
         const data = await api.getAssetRiskScore(assetId);
-        setState({ data, loading: false, error: error as Error });
+        setState({ data, loading: false, error: null });
       } catch (error) {
         setState({ data: null, loading: false, error: error as Error });
       }
@@ -153,28 +158,49 @@ export function useTokenOffering(tokenId: string | null) {
   return state;
 }
 
-export function useProposals(tokenId: string | null) {
+export function useProposals(tokenId?: string | null) {
   const [state, setState] = useState<UseQueryState<api.GovernanceProposal[]>>({
     data: null,
-    loading: !tokenId,
+    loading: true,
     error: null,
   });
 
   useEffect(() => {
-    if (!tokenId) {
-      setState({ data: null, loading: false, error: null });
-      return;
-    }
-
     (async () => {
       try {
-        const data = await api.getProposals(tokenId);
+        const data = await api.getProposals(tokenId ?? undefined);
         setState({ data, loading: false, error: null });
       } catch (error) {
         setState({ data: null, loading: false, error: error as Error });
       }
     })();
   }, [tokenId]);
+
+  return state;
+}
+
+export function useGovernanceVotes(voterWallet: string | null) {
+  const [state, setState] = useState<UseQueryState<api.GovernanceVote[]>>({
+    data: null,
+    loading: !voterWallet,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (!voterWallet) {
+      setState({ data: [], loading: false, error: null });
+      return;
+    }
+
+    (async () => {
+      try {
+        const data = await api.getGovernanceVotes({ voterWallet });
+        setState({ data, loading: false, error: null });
+      } catch (error) {
+        setState({ data: [], loading: false, error: error as Error });
+      }
+    })();
+  }, [voterWallet]);
 
   return state;
 }
@@ -211,6 +237,7 @@ export function useKYCStatus(wallet: string | null) {
     loading: !wallet,
     error: null,
   });
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (!wallet) {
@@ -219,6 +246,7 @@ export function useKYCStatus(wallet: string | null) {
     }
 
     (async () => {
+      setState((s) => ({ ...s, loading: true }));
       try {
         const data = await api.getKYCStatus(wallet);
         setState({ data, loading: false, error: null });
@@ -226,7 +254,10 @@ export function useKYCStatus(wallet: string | null) {
         setState({ data: null, loading: false, error: error as Error });
       }
     })();
-  }, [wallet]);
+  }, [wallet, tick]);
 
-  return state;
+  return {
+    ...state,
+    refetch: () => setTick((t) => t + 1),
+  };
 }

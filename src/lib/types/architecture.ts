@@ -151,6 +151,10 @@ export interface CryptoKey {
   rotatesAt: Date;
   hsmLocation: string;
   publicKeyHash: string;
+  /** Base64url-encoded NIST public key (pqc1:… wire format) for verification */
+  publicKeyEnc?: string;
+  /** Shamir share identifiers from key ceremony (metadata only in API responses) */
+  shamirShareIds?: string[];
 }
 
 export interface ZKCredential {

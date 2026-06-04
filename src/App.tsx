@@ -1,41 +1,45 @@
-import React, { useState } from 'react';
-import { Building2, LayoutDashboard, TrendingUp, Users, Settings, Database, LogOut, CheckCircle, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
+import { AppLayout, type PageId } from './components/layout/AppLayout';
 import Dashboard from './pages/Dashboard';
 import AssetMarketplace from './pages/AssetMarketplace';
 import PortfolioPage from './pages/PortfolioPage';
 import KYCPage from './pages/KYCPage';
 import GovernancePage from './pages/GovernancePage';
 import AdminPage from './pages/AdminPage';
-import ArchitectureOverview from './components/ArchitectureOverview';
-
-type PageType = 'dashboard' | 'marketplace' | 'portfolio' | 'kyc' | 'governance' | 'admin' | 'architecture';
 
 function AppContent() {
-  const [currentPage, setCurrentPage] = useState<PageType>('dashboard');
-  const { user, userRole, loading, signOut, setUserRole } = useAuth();
+  const [currentPage, setCurrentPage] = useState<PageId>('dashboard');
+  const [marketplaceSearch, setMarketplaceSearch] = useState('');
+  const [showLogin, setShowLogin] = useState(false);
+  const { user, loading, userRole } = useAuth();
+
+  const handleNavigate = (page: PageId, searchQuery?: string) => {
+    if (page === 'marketplace' && searchQuery !== undefined) {
+      setMarketplaceSearch(searchQuery);
+    }
+    setCurrentPage(page);
+  };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-400 mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading...</p>
-        </div>
+      <div className="min-h-screen bg-brand-cream flex items-center justify-center">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-brand-600" />
       </div>
     );
-  }
-
-  if (!user) {
-    return <LoginPage />;
   }
 
   const renderPage = () => {
     switch (currentPage) {
       case 'dashboard':
-        return <Dashboard userRole={userRole} />;
+        return <Dashboard userRole={userRole} onNavigate={handleNavigate} />;
       case 'marketplace':
-        return <AssetMarketplace />;
+        return (
+          <AssetMarketplace
+            initialSearch={marketplaceSearch}
+            onSearchChange={setMarketplaceSearch}
+          />
+        );
       case 'portfolio':
         return <PortfolioPage />;
       case 'kyc':
@@ -43,236 +47,78 @@ function AppContent() {
       case 'governance':
         return <GovernancePage />;
       case 'admin':
-        return userRole === 'admin' ? <AdminPage /> : <Dashboard userRole={userRole} />;
-      case 'architecture':
-        return <ArchitectureOverview />;
+        return userRole === 'admin' ? (
+          <AdminPage />
+        ) : (
+          <Dashboard userRole={userRole} onNavigate={handleNavigate} />
+        );
       default:
-        return <Dashboard userRole={userRole} />;
+        return <Dashboard onNavigate={handleNavigate} />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
-      {/* Header */}
-      <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => setCurrentPage('dashboard')}>
-              <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-2 rounded-lg">
-                <Building2 className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">RealEstate Token</h1>
-                <p className="text-xs text-slate-400">Decentralized Real Estate Tokenization</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 rounded-lg">
-                <span className="text-xs text-slate-300">{user?.email}</span>
-              </div>
-              <select
-                value={userRole}
-                onChange={(e) => setUserRole(e.target.value as any)}
-                className="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-slate-300"
-              >
-                <option value="investor">Investor</option>
-                <option value="issuer">Issuer</option>
-                <option value="admin">Admin</option>
-              </select>
-              <button
-                onClick={() => signOut()}
-                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-              >
-                <LogOut className="w-4 h-4 text-slate-400" />
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Navigation */}
-      <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-16 z-40">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex gap-1 py-3 overflow-x-auto">
-            {[
-              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-              { id: 'marketplace', label: 'Marketplace', icon: TrendingUp },
-              { id: 'portfolio', label: 'Portfolio', icon: Building2 },
-              { id: 'kyc', label: 'KYC/Compliance', icon: CheckCircle },
-              { id: 'governance', label: 'Governance', icon: Users },
-              ...(userRole === 'admin' ? [{ id: 'admin', label: 'Admin', icon: Settings }] : []),
-              { id: 'architecture', label: 'Architecture', icon: Database },
-            ].map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setCurrentPage(id as PageType)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                  currentPage === id
-                    ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/50'
-                    : 'text-slate-400 hover:text-slate-300 hover:bg-slate-800/50'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {renderPage()}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-slate-800 bg-slate-900/50 mt-16">
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <div className="grid grid-cols-4 gap-8 mb-8">
-            <div>
-              <h4 className="font-semibold text-white text-sm mb-3">Architecture</h4>
-              <ul className="space-y-1">
-                <li className="text-xs text-slate-400">4 Sovereign Layers</li>
-                <li className="text-xs text-slate-400">24 Components</li>
-                <li className="text-xs text-slate-400">NIST PQC Standards</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-white text-sm mb-3">Security</h4>
-              <ul className="space-y-1">
-                <li className="text-xs text-slate-400">ML-DSA-87 (FIPS 204)</li>
-                <li className="text-xs text-slate-400">ML-KEM-1024 (FIPS 203)</li>
-                <li className="text-xs text-slate-400">SLH-DSA (FIPS 205)</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-white text-sm mb-3">Compliance</h4>
-              <ul className="space-y-1">
-                <li className="text-xs text-slate-400">MiCA (EU)</li>
-                <li className="text-xs text-slate-400">Reg D/S (US)</li>
-                <li className="text-xs text-slate-400">FCA (UK)</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-white text-sm mb-3">Status</h4>
-              <ul className="space-y-1">
-                <li className="text-xs text-emerald-400">Production Ready</li>
-                <li className="text-xs text-emerald-400">Build: Passing</li>
-                <li className="text-xs text-emerald-400">RLS Enabled</li>
-              </ul>
-            </div>
-          </div>
-          <div className="border-t border-slate-800 pt-6">
-            <p className="text-xs text-slate-500">
-              RealEstate Token Platform v1.0 • 11-Stage Lifecycle • Zero-Trust Architecture • Quantum-Safe by Design
-            </p>
-          </div>
-        </div>
-      </footer>
-    </div>
+    <AppLayout
+      currentPage={currentPage}
+      onNavigate={handleNavigate}
+      onOpenLogin={() => setShowLogin(true)}
+    >
+      {renderPage()}
+      {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
+    </AppLayout>
   );
 }
 
-function LoginPage() {
+function LoginModal({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const { signUp, signIn } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const { signUp, signIn, user } = useAuth();
+
+  useEffect(() => {
+    if (user) onClose();
+  }, [user, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
+    setBusy(true);
     try {
-      if (isSignUp) {
-        await signUp(email, password);
-        setEmail('');
-        setPassword('');
-        setIsSignUp(false);
-      } else {
-        await signIn(email, password);
-      }
-    } catch (err: any) {
-      setError(err.message || 'Authentication failed');
+      if (isSignUp) await signUp(email, password);
+      else await signIn(email, password);
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="bg-slate-900 border border-slate-800 rounded-lg p-8">
-          <div className="flex items-center justify-center gap-3 mb-8">
-            <div className="bg-gradient-to-br from-emerald-400 to-emerald-600 p-2 rounded-lg">
-              <Building2 className="w-6 h-6 text-white" />
-            </div>
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-emerald-400 to-emerald-600 bg-clip-text text-transparent">
-              RealEstate Token
-            </h1>
-          </div>
-
-          <h2 className="text-xl font-bold text-white mb-6 text-center">
-            {isSignUp ? 'Create Account' : 'Sign In'}
-          </h2>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-semibold text-white mb-2">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                placeholder="you@example.com"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-semibold text-white mb-2">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                placeholder="••••••••"
-              />
-            </div>
-
-            {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-sm">
-                {error}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 text-white font-semibold rounded-lg transition-colors"
-            >
-              {loading ? 'Loading...' : isSignUp ? 'Create Account' : 'Sign In'}
-            </button>
-          </form>
-
-          <button
-            onClick={() => {
-              setIsSignUp(!isSignUp);
-              setError('');
-            }}
-            className="w-full mt-4 py-2 text-slate-400 hover:text-slate-300 transition-colors text-sm"
-          >
-            {isSignUp ? 'Already have an account? Sign in' : 'Need an account? Sign up'}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-brand-navy/50 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-white rounded-2xl p-8 relative shadow-2xl">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-brand-navy text-sm font-medium"
+        >
+          Skip
+        </button>
+        <h2 className="font-display text-xl font-semibold text-brand-navy">Sign in</h2>
+        <p className="text-slate-500 text-sm mt-1 mb-6">Optional — only needed to invest</p>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="Email" className="input-field" />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Password" className="input-field" />
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <button type="submit" disabled={busy} className="w-full btn-primary">
+            {busy ? 'Please wait…' : isSignUp ? 'Create account' : 'Sign in'}
           </button>
-        </div>
-
-        <p className="text-center text-xs text-slate-500 mt-6">
-          Demo: Use test credentials or create a new account
-        </p>
+        </form>
+        <button type="button" onClick={() => setIsSignUp(!isSignUp)} className="w-full mt-4 text-sm text-brand-600 font-medium">
+          {isSignUp ? 'Already have an account?' : 'Create an account'}
+        </button>
       </div>
     </div>
   );

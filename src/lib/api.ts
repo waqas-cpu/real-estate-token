@@ -120,7 +120,7 @@ export async function getAssets() {
   const { data, error } = await supabase
     .from('physical_assets')
     .select('*')
-    .eq('verified', true);
+    .order('created_at', { ascending: false });
 
   if (error) throw error;
   return data as PhysicalAsset[];

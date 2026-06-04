@@ -13,63 +13,64 @@ import {
   PhysicalAsset,
   OracleAttestation,
   DigitalTwin,
-  DataLayer,
 } from '../types/architecture';
+import { hashAssetIntegrity } from '../utils/hash';
+import { pinJsonToIpfs, getIpfsPinMode } from '../integrations/pinata';
+import { verifyUtf8Message } from '../crypto/pqc/nist.js';
+import { getOracleSigningKeyPair } from '../crypto/pqc/keyStore.js';
+import {
+  fetchRegistryProperty,
+  type RegistryType,
+} from '../integrations/registry.js';
+import {
+  fetchOracleFeed,
+  buildSignedAttestation,
+} from '../integrations/oracles.js';
+import { enrichTwinWithPendingAnchor } from '../integrations/twinAnchor.js';
 
 /**
  * Asset Ingestion Pipeline
  */
 export class AssetIngestor {
   async ingestFromRegistry(
-    registryType: 'HM_LAND_REGISTRY' | 'TORRENS' | 'CADASTER',
+    registryType: RegistryType,
     referenceId: string
-  ): Promise<PhysicalAsset> {
-    // Step 1: Fetch from registry API
-    const rawData = await this.fetchRegistryData(registryType, referenceId);
-
-    // Step 2: Normalize against canonical ontology
-    const normalized = this.normalizeAssetData(rawData, registryType);
-
-    // Step 3: Calculate SHA3-512 hash
-    const contentHash = await this.hashAsset(normalized);
+  ): Promise<{ asset: PhysicalAsset; registryRecord: Awaited<ReturnType<typeof fetchRegistryProperty>> }> {
+    const registryRecord = await fetchRegistryProperty(registryType, referenceId);
+    const normalized = this.normalizeAssetData(
+      registryRecord as unknown as Record<string, unknown>,
+      registryType
+    );
 
     // Step 4: Create asset record
     const asset: PhysicalAsset = {
       id: `asset_${Date.now()}`,
-      address: normalized.address,
-      title: normalized.title,
-      lat: normalized.latitude,
-      lng: normalized.longitude,
-      squareFeet: normalized.squareFeet,
-      bedrooms: normalized.bedrooms,
-      bathrooms: normalized.bathrooms,
-      yearBuilt: normalized.yearBuilt,
+      address: String(normalized.address),
+      title: String(normalized.title),
+      lat: Number(normalized.latitude),
+      lng: Number(normalized.longitude),
+      squareFeet: Number(normalized.squareFeet),
+      bedrooms: Number(normalized.bedrooms),
+      bathrooms: Number(normalized.bathrooms),
+      yearBuilt: Number(normalized.yearBuilt),
       registrySource: registryType,
-      contentHash,
+      contentHash: hashAssetIntegrity({
+        address: String(normalized.address),
+        title: String(normalized.title),
+        lat: Number(normalized.latitude),
+        lng: Number(normalized.longitude),
+        squareFeet: Number(normalized.squareFeet),
+        bedrooms: Number(normalized.bedrooms),
+        bathrooms: Number(normalized.bathrooms),
+        yearBuilt: Number(normalized.yearBuilt),
+        registrySource: registryType,
+      }),
       verified: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    return asset;
-  }
-
-  private async fetchRegistryData(
-    registryType: string,
-    referenceId: string
-  ): Promise<Record<string, unknown>> {
-    // Placeholder for actual registry API integration
-    // In production, integrate with HM Land Registry GraphQL, Torrens APIs, etc.
-    return {
-      title: `Property at ${referenceId}`,
-      address: `${referenceId} Example St`,
-      latitude: 51.5074,
-      longitude: -0.1278,
-      squareFeet: 2500,
-      bedrooms: 4,
-      bathrooms: 2,
-      yearBuilt: 1995,
-    };
+    return { asset, registryRecord };
   }
 
   private normalizeAssetData(
@@ -90,12 +91,6 @@ export class AssetIngestor {
     return schema;
   }
 
-  private async hashAsset(asset: Record<string, unknown>): Promise<string> {
-    // In production, use crypto-js or native Web Crypto
-    const json = JSON.stringify(asset);
-    // Placeholder SHA3-512 calculation
-    return 'sha3_' + Buffer.from(json).toString('base64').slice(0, 16);
-  }
 }
 
 /**
@@ -127,16 +122,18 @@ export class DigitalTwinManager {
       createdAt: new Date().toISOString(),
     };
 
-    // Step 2: Pin to IPFS
+    const pinMode = getIpfsPinMode();
     const cid = await this.pinToIPFS(twinData);
 
-    // Step 3: Create twin record
     const twin: DigitalTwin = {
       id: `twin_${Date.now()}`,
       assetId: asset.id,
       cid,
       version: 1,
-      schema: twinData,
+      schema: {
+        ...twinData,
+        ipfsPinMode: pinMode,
+      },
       titleChain: [],
       encumbrances: [],
       valuationHistory: [],
@@ -173,11 +170,7 @@ export class DigitalTwinManager {
   }
 
   private async pinToIPFS(data: Record<string, unknown>): Promise<string> {
-    // Placeholder for IPFS pinning
-    // In production, use Pinata, web3.storage, or self-hosted IPFS node
-    const json = JSON.stringify(data);
-    // Simulate CID generation: Qm + base58(multihash)
-    return 'Qm' + Buffer.from(json).toString('base64').slice(0, 44);
+    return pinJsonToIpfs(data);
   }
 }
 
@@ -224,18 +217,8 @@ export class OracleCoordinator {
     dataType: string,
     source: 'CHAINLINK' | 'PYTH' | 'CUSTOM'
   ): Promise<OracleAttestation> {
-    // Placeholder for oracle request
-    return {
-      id: `att_${Date.now()}`,
-      assetId,
-      source,
-      dataType: dataType as any,
-      value: '500000', // Example: property value in wei
-      confidence: 0.85,
-      signedAt: new Date(),
-      signatureML_DSA: 'sig_placeholder_' + Math.random().toString(36),
-      expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
-    };
+    const feed = await fetchOracleFeed(assetId, dataType, source);
+    return buildSignedAttestation(assetId, dataType as OracleAttestation['dataType'], feed);
   }
 
   /**
@@ -248,7 +231,10 @@ export class OracleCoordinator {
     for (const att of attestations) {
       const isValid = await this.verifyML_DSA87(
         att.value,
-        att.signatureML_DSA
+        att.signatureML_DSA,
+        att.source,
+        att.assetId,
+        att.dataType
       );
       if (!isValid) {
         return false;
@@ -257,10 +243,10 @@ export class OracleCoordinator {
     return true;
   }
 
-  private async verifyML_DSA87(value: string, signature: string): Promise<boolean> {
-    // Placeholder for ML-DSA-87 signature verification
-    // In production, use Dilithium (FIPS 204) verification
-    return signature.startsWith('sig_');
+  private async verifyML_DSA87(value: string, signature: string, source: string, assetId: string, dataType: string): Promise<boolean> {
+    const oracleKey = getOracleSigningKeyPair();
+    const payload = `${assetId}|${dataType}|${value}|${source}`;
+    return verifyUtf8Message(payload, signature, oracleKey.publicKeyEnc);
   }
 }
 
@@ -292,10 +278,29 @@ export class DataLayerOrchestrator {
     attestations: OracleAttestation[];
   }> {
     // Step 1: Ingest from registry
-    const asset = await this.ingestor.ingestFromRegistry(registryType, referenceId);
+    const { asset, registryRecord } = await this.ingestor.ingestFromRegistry(
+      registryType,
+      referenceId
+    );
 
-    // Step 2: Create digital twin
-    const twin = await this.twinManager.createTwin(asset);
+    let twin = await this.twinManager.createTwin(asset);
+    if (registryRecord.encumbrances?.length) {
+      twin = {
+        ...twin,
+        encumbrances: registryRecord.encumbrances.map((e) => ({
+          type: e.type as 'MORTGAGE' | 'LIEN' | 'EASEMENT' | 'COVENANT',
+          holder: registryRecord.titleNumber ?? 'registry',
+        })),
+        schema: {
+          ...twin.schema,
+          registry: {
+            dataSource: registryRecord.dataSource,
+            titleNumber: registryRecord.titleNumber,
+            referenceId: registryRecord.referenceId,
+          },
+        },
+      };
+    }
 
     // Step 3: Collect oracle attestations
     const attestations = await this.oracleCoordinator.collectAttestations(
@@ -311,6 +316,8 @@ export class DataLayerOrchestrator {
       throw new Error('Oracle signature verification failed');
     }
 
-    return { asset, twin, attestations };
+    const twinAnchored = enrichTwinWithPendingAnchor(twin, asset.id);
+
+    return { asset, twin: twinAnchored, attestations };
   }
 }
