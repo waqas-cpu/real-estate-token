@@ -1,0 +1,73 @@
+"""
+The Graph Subgraph Schema for ERC-3643 Real Estate Tokenization
+Tracks: Tokens, Accounts, Balances, Transfers, and Compliance Events
+"""
+
+type Token @entity {
+  id: ID! # Token Contract Address
+  name: String!
+  symbol: String!
+  decimals: Int!
+  totalSupply: BigInt!
+  identityRegistry: Bytes!
+  compliance: Bytes!
+  onchainID: Bytes!
+  paused: Boolean!
+  owner: Bytes!
+  transfersCount: BigInt!
+  holdersCount: BigInt!
+  transfers: [TokenTransfer!]! @derivedFrom(field: "token")
+  holders: [AccountBalance!]! @derivedFrom(field: "token")
+}
+
+type Account @entity {
+  id: ID! # Wallet Address
+  onchainID: Bytes
+  isVerified: Boolean!
+  country: BigInt
+  balances: [AccountBalance!]! @derivedFrom(field: "account")
+  sentTransfers: [TokenTransfer!]! @derivedFrom(field: "from")
+  receivedTransfers: [TokenTransfer!]! @derivedFrom(field: "to")
+}
+
+type AccountBalance @entity {
+  id: ID! # Set to `${token.id}-${account.id}`
+  token: Token!
+  account: Account!
+  balance: BigInt!
+  lockedBalance: BigInt!
+  isFrozen: Boolean!
+  lastUpdatedBlock: BigInt!
+  lastUpdatedTimestamp: BigInt!
+}
+
+type TokenTransfer @entity {
+  id: ID! # Set to `${txHash}-${logIndex}`
+  token: Token!
+  from: Account!
+  to: Account!
+  value: BigInt!
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type ContractEvent @entity {
+  id: ID!
+  contractAddress: Bytes!
+  eventName: String!
+  parameters: String! # JSON encoded event arguments
+  blockNumber: BigInt!
+  blockTimestamp: BigInt!
+  transactionHash: Bytes!
+}
+
+type DailySnapshot @entity {
+  id: ID! # `${token.id}-${dayIndex}`
+  token: Token!
+  date: BigInt!
+  dailyVolume: BigInt!
+  dailyTransfers: BigInt!
+  totalHolders: BigInt!
+  totalSupply: BigInt!
+}

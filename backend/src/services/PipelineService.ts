@@ -22,6 +22,7 @@ import {
   resolveL2Network,
   L2_CHAIN_IDS,
 } from '../../../src/lib/crypto/pqc/l2Settlement.js';
+import { databaseManager } from './database/DatabaseLayerManager.js';
 
 export { AgentApprovalRequiredError };
 
@@ -134,6 +135,39 @@ export class PipelineService {
       rules_applied: boundary.rulesApplied,
       all_passed: boundary.allPassed,
     });
+
+    try {
+      await databaseManager.property.saveProperty({
+        id: assetId,
+        address: asset.address,
+        title: asset.title,
+        latitude: asset.lat,
+        longitude: asset.lng,
+        parcelId: `PARCEL-${asset.registrySource}-${referenceId}`,
+        propertyType: 'RESIDENTIAL',
+        unitsCount: asset.bedrooms || 1,
+        squareFeet: asset.squareFeet,
+        bedrooms: asset.bedrooms,
+        bathrooms: asset.bathrooms,
+        yearBuilt: asset.yearBuilt,
+        registrySource: asset.registrySource,
+        contentHash: asset.contentHash,
+        verified: true,
+        createdBy,
+      });
+
+      await databaseManager.documents.uploadAndRegisterDocument({
+        assetId,
+        documentType: 'DEED',
+        title: `Official Deed of Title - ${asset.title}`,
+        fileName: `deed_${referenceId}.pdf`,
+        fileBufferOrContent: `OFFICIAL DEED RECORD: ${asset.address}, Registry: ${asset.registrySource}, Ref: ${referenceId}, ContentHash: ${asset.contentHash}`,
+        notarized: true,
+        uploadedBy: createdBy,
+      });
+    } catch {
+      // Non-blocking sync
+    }
 
     return {
       assetId,
@@ -342,6 +376,26 @@ export class PipelineService {
       .update({ verified: true, updated_at: new Date().toISOString() })
       .eq('id', assetId);
 
+    try {
+      if (valuation?.fmv) {
+        await databaseManager.analytics.recordNavSnapshot({
+          tokenId: assetId,
+          propertyId: assetId,
+          totalAssetValuationUsd: Number(valuation.fmv),
+          totalTokenSupply: '30000',
+          valuationMethod: valuation.method || 'ORACLE_INTELLIGENCE',
+        });
+        await databaseManager.analytics.recordRentalYield({
+          propertyId: assetId,
+          grossAnnualRentUsd: Number(valuation.fmv) * 0.12,
+          annualOperatingExpensesUsd: Number(valuation.fmv) * 0.02,
+          propertyValuationUsd: Number(valuation.fmv),
+        });
+      }
+    } catch {
+      // Non-blocking sync
+    }
+
     return {
       valuation,
       riskScore,
@@ -473,6 +527,23 @@ export class PipelineService {
       all_passed: boundary.allPassed,
     });
 
+    try {
+      await databaseManager.investors.upsertInvestorProfile({
+        walletAddress: investorWallet,
+        fullName: 'Accredited RWA Investor',
+        primaryJurisdiction: jurisdiction,
+        accreditationStatus: kyc.accreditated ? 'ACCREDITED' : 'RETAIL',
+      });
+      await databaseManager.investors.updateKycStatus(
+        investorWallet,
+        kyc.accreditated ? 'APPROVED' : 'PENDING',
+        'NOT_APPLICABLE',
+        'LOW'
+      );
+    } catch {
+      // Non-blocking sync
+    }
+
     return { kyc, credential, keys, gate: boundary };
   }
 
@@ -524,7 +595,7 @@ export class PipelineService {
       };
     }
 
-    return this.executionLayer.completeExecutionFromPipeline({
+    const result = await this.executionLayer.completeExecutionFromPipeline({
       assetId,
       symbol: opts.symbol,
       creatorId: actorId,
@@ -534,6 +605,48 @@ export class PipelineService {
       network: opts.network,
       l2Settlement,
     });
+
+    try {
+      const token = result.token;
+      if (token?.id) {
+        await databaseManager.tokenization.registerToken({
+          id: token.id,
+          assetId,
+          symbol: opts.symbol,
+          name: `${opts.symbol} Property Token`,
+          totalSupply: token.totalSupply ?? '30000',
+          decimals: token.decimals ?? 0,
+          contractAddress: token.contractAddress,
+          creator: actorId,
+        });
+
+        await databaseManager.tokenization.createIssuanceTranche({
+          tokenId: token.id,
+          trancheName: 'Series A Primary Offering',
+          targetRaiseUsd: 3000000,
+          minimumRaiseUsd: 1500000,
+          tokenPriceUsd: 100,
+          tokensOffered: '30000',
+        });
+
+        await databaseManager.tokenization.updateCapTableAllocation({
+          tokenId: token.id,
+          investorWallet: opts.investorWallet,
+          absoluteBalance: 0n,
+        });
+
+        await databaseManager.indexer.updateWalletBalance(
+          token.contractAddress,
+          opts.investorWallet,
+          '0',
+          '0'
+        );
+      }
+    } catch {
+      // Non-blocking sync
+    }
+
+    return result;
   }
 
   /**

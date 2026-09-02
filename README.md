@@ -27,17 +27,68 @@ npm run dev
 # Opens http://localhost:5173
 ```
 
-### Production deployment
+### Production deployment (Docker)
 
-See **[PRODUCTION_RUNBOOK.md](./PRODUCTION_RUNBOOK.md)** for Supabase, Docker, smoke E2E, and go-live checklist.
+The platform ships as a **multi-stage Docker image** that serves both the Express API and the React SPA from a single container, fronted by an Nginx reverse proxy.
 
+#### Prerequisites
+- [Docker Engine](https://docs.docker.com/engine/install/) ≥ 24
+- [Docker Compose](https://docs.docker.com/compose/install/) v2+
+
+#### Quick Start
 ```bash
-npm run prod:check      # typecheck + backend tests (from repo with deps installed)
-npm run smoke:e2e       # full DB pipeline (requires backend/.env)
+# 1. Set up environment variables
+cp backend/.env.example backend/.env
+# → Fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, etc.
+
+# 2. Build & start the full stack
 docker compose up --build
+
+# 3. Open the application
+#    Via Nginx (recommended): http://localhost:8080
+#    Direct API access:       http://localhost:3001
 ```
 
-### Production Build
+#### Docker Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│  Host Machine                                │
+│                                              │
+│  :8080 ──► ┌────────────┐     ┌───────────┐  │
+│            │   Nginx    │────►│  Express   │  │
+│            │  (proxy)   │     │  API +     │  │
+│            └────────────┘     │  React SPA │  │
+│                          :3001│            │  │
+│                               └───────────┘  │
+│                               rwa-net        │
+└──────────────────────────────────────────────┘
+```
+
+| Service | Container | Port | Purpose |
+|---------|-----------|------|---------|
+| `api`   | `rwa-api`   | `3001` | Express backend + Vite SPA (via `mountFrontend.ts`) |
+| `nginx` | `rwa-nginx` | `8080` | Reverse proxy, gzip, security headers, caching |
+
+#### Useful Commands
+```bash
+# Rebuild after code changes
+docker compose up --build -d
+
+# View logs
+docker compose logs -f api
+
+# Check health status
+docker compose ps
+
+# Stop the stack
+docker compose down
+
+# Full cleanup (removes images + volumes)
+docker compose down --rmi all -v
+```
+
+#### Production Build (without Docker)
 ```bash
 npm run build
 npm run preview
@@ -384,6 +435,7 @@ CHAINLINK_API_KEY=[key]
 ## Support & Documentation
 
 For detailed information, see:
+- **CI/CD Pipelines**: `CI_CD_PIPELINE.md`
 - **Backend**: `ARCHITECTURE.md`
 - **Frontend**: `FRONTEND_GUIDE.md`
 - **Implementation**: `IMPLEMENTATION_GUIDE.md`

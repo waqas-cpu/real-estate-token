@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from '../supabase.js';
 import { hashContent } from '../../../src/lib/utils/hash.js';
 import { TokenEconomicsService } from './TokenEconomicsService.js';
 import { PLATFORM_TOKEN_ECONOMICS } from '../config/platformTokenEconomics.js';
+import { databaseManager } from './database/DatabaseLayerManager.js';
 
 export interface CreateDistributionInput {
   tokenId: string;
@@ -137,6 +138,22 @@ export class DistributionService {
       .select()
       .single();
     if (error) throw error;
+
+    try {
+      const distributableUsdc = Number(BigInt(preview.distributableUsdcMicro) / 1000000n);
+      await databaseManager.analytics.recordDistributionMetric({
+        tokenId: input.tokenId,
+        periodLabel: `${input.periodStart.slice(0, 7)}`,
+        totalDistributedUsdc: distributableUsdc,
+        distributionRatePerToken: distributableUsdc / 30000,
+        annualizedYieldPct: PLATFORM_TOKEN_ECONOMICS.annualYieldPercent,
+        recipientCount: preview.perHolder.length,
+        merkleRoot,
+      });
+    } catch {
+      // Non-blocking sync
+    }
+
     return { distribution: data, preview };
   }
 }

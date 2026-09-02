@@ -31,6 +31,7 @@ import intelligenceRouter, {
 } from './routes/intelligence.js';
 import regulatoryRouter from './routes/regulatory.js';
 import anchorsRouter from './routes/anchors.js';
+import databaseLayersRouter from './routes/databaseLayers.js';
 import { AgentApprovalRequiredError } from './services/IntelligenceAgentService.js';
 import { mountFrontend } from './mountFrontend.js';
 
@@ -72,6 +73,8 @@ export function createApp() {
   app.use('/api/intelligence', intelligenceRouter);
   app.use('/api/regulatory', regulatoryRouter);
   app.use('/api/anchors', anchorsRouter);
+  app.use('/api/v1/database', databaseLayersRouter);
+  app.use('/api/database', databaseLayersRouter);
 
   if (config.serveFrontend) {
     mountFrontend(app, config.frontendDist);

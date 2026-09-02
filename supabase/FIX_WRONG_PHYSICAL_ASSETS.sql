@@ -11,5 +11,7 @@ ALTER TABLE IF EXISTS public.physical_assets
 --   20260530130000_003_subscription_token_units.sql
 --   20260530140000_004_intelligence_agent.sql
 --   20260530150000_005_testnet_alignment.sql
+--   20260601100000_006_rwa_multi_database_layers.sql
+--   20260601100000_007_indexer_and_analytics_layers.sql
 --
 -- Or from repo root: npx supabase link --project-ref jvstdfjzszivkjrrsbbq && npx supabase db push

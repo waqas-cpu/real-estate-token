@@ -5,7 +5,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-const migrationsDir = join(import.meta.dirname, '../../../supabase/migrations');
+const migrationsDir = join(import.meta.dirname, '../../supabase/migrations');
 const files = readdirSync(migrationsDir)
   .filter((f) => f.endsWith('.sql'))
   .sort();

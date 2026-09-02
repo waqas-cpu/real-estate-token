@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '../supabase.js';
 import { TokenEconomicsService } from './TokenEconomicsService.js';
 import { PLATFORM_TOKEN_ECONOMICS } from '../config/platformTokenEconomics.js';
+import { databaseManager } from './database/DatabaseLayerManager.js';
 
 export class InvestmentService {
   private economics = new TokenEconomicsService();
@@ -113,6 +114,35 @@ export class InvestmentService {
         investor_count: count ?? 0,
       })
       .eq('id', offeringId);
+
+    try {
+      if (offering.token_id) {
+        await databaseManager.tokenization.updateCapTableAllocation({
+          tokenId: offering.token_id,
+          investorWallet,
+          balanceChange: BigInt(tokenCount),
+        });
+
+        await databaseManager.indexer.recordTransfer({
+          chainId: 11155111,
+          tokenAddress: offering.token_id,
+          fromAddress: offering.escrow_contract_addr || offeringId,
+          toAddress: investorWallet,
+          amount: String(tokenCount),
+          transactionHash: `sub-${sub?.id || Date.now()}`,
+          blockNumber: 6200500,
+          blockTimestamp: new Date().toISOString(),
+        });
+
+        await databaseManager.indexer.updateWalletBalance(
+          offering.token_id,
+          investorWallet,
+          String(tokenCount)
+        );
+      }
+    } catch {
+      // Non-blocking sync
+    }
 
     return {
       subscription: sub,
