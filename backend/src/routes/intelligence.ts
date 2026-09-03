@@ -162,6 +162,45 @@ router.post(
   }
 );
 
+const oracleIntegrity = new (await import('../services/OracleIntegrityService.js')).OracleIntegrityService();
+
+/** Oracle attestation ingestion with data integrity, staleness, and deviation checks */
+router.post('/oracle/attestation', optionalAuth, requireAuth, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      assetId: z.string().min(1),
+      source: z.enum(['CHAINLINK', 'PYTH', 'CERTIFIED_APPRAISER', 'CUSTOM']),
+      valuationUsd: z.number().positive(),
+      confidence: z.number().min(0).max(1),
+      timestamp: z.string(),
+      signature: z.string().min(5),
+    });
+
+    const body = schema.parse(req.body);
+    const result = oracleIntegrity.validateAndIngestAttestation(body);
+
+    if (!result.accepted) {
+      res.status(422).json({
+        success: false,
+        ...result,
+      });
+      return;
+    }
+
+    res.status(201).json({
+      success: true,
+      ...result,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get('/oracle/price/:assetId', optionalAuth, (req, res) => {
+  const price = oracleIntegrity.getActivePrice(req.params.assetId);
+  res.json({ assetId: req.params.assetId, activePriceUsd: price });
+});
+
 export function handleAgentApprovalError(
   err: Error,
   _req: Request,
@@ -181,3 +220,4 @@ export function handleAgentApprovalError(
 }
 
 export default router;
+

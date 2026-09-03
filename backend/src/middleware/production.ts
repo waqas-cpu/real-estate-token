@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import { config } from '../config.js';
 
-/** ARCHITECTURE Phase 8: rate limiting on APIs */
+/** General API rate limiter */
 export const apiRateLimiter = rateLimit({
   windowMs: config.rateLimitWindowMs,
   max: config.rateLimitMax,
@@ -11,11 +11,28 @@ export const apiRateLimiter = rateLimit({
   message: { error: 'Too many requests. Please retry later.' },
 });
 
+/** Strict rate limiter for sensitive authentication, multisig, and emergency endpoints */
+export const sensitiveActionRateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // 30 sensitive requests/minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests on sensitive endpoint. Rate limit exceeded.' },
+});
+
+/** Enterprise security headers following OWASP guidelines */
 export function securityHeaders(_req: Request, res: Response, next: NextFunction): void {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-DNS-Prefetch-Control', 'off');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; object-src 'none'; style-src 'self' 'unsafe-inline'; base-uri 'self';"
+  );
   next();
 }
 

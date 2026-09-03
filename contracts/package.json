@@ -16,5 +16,8 @@
     "@openzeppelin/contracts": "^4.8.3",
     "dotenv": "^16.4.5",
     "hardhat": "^2.22.10"
+  },
+  "dependencies": {
+    "vite-react-typescript-starter": "file:.."
   }
 }

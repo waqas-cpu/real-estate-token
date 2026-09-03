@@ -5,6 +5,7 @@ import { SmartContractGuardError } from './services/ExecutionService.js';
 import { TokenEconomicsGuardError } from './services/TokenEconomicsService.js';
 import {
   apiRateLimiter,
+  sensitiveActionRateLimiter,
   securityHeaders,
   requestLogger,
 } from './middleware/production.js';
@@ -53,6 +54,9 @@ export function createApp() {
 
   app.use('/health', healthRouter);
   app.use('/api', apiRateLimiter);
+  app.use('/api/admin/emergency', sensitiveActionRateLimiter);
+  app.use('/api/admin/multisig', sensitiveActionRateLimiter);
+  app.use('/api/kyc/whitelist', sensitiveActionRateLimiter);
   app.use('/api', optionalAuth);
   app.use('/api', auditApiMutations);
 

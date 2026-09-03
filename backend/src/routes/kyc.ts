@@ -2,13 +2,16 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { PipelineService } from '../services/PipelineService.js';
 import { IntelligenceAgentService } from '../services/IntelligenceAgentService.js';
+import { KycKybWhitelistingService } from '../services/KycKybWhitelistingService.js';
 import { getSupabaseAdmin } from '../supabase.js';
 import { config } from '../config.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
+import { requireCompliance } from '../middleware/rbac.js';
 
 const router = Router();
 const pipeline = new PipelineService();
 const intelligenceAgent = new IntelligenceAgentService();
+const whitelistingService = new KycKybWhitelistingService();
 const KYC_BUCKET = 'kyc-documents';
 
 /** Sumsub applicantReviewed / applicantPending webhooks */
@@ -119,6 +122,97 @@ router.post('/upload-docs', optionalAuth, requireAuth, async (req, res, next) =>
           ? 'Production: verify via Sumsub API webhook'
           : 'Document metadata recorded; complete KYC via POST /api/kyc/verify',
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Submit Corporate KYB Profile with Ultimate Beneficial Owners (UBOs) */
+router.post('/kyb/submit', optionalAuth, requireAuth, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      walletAddress: z.string().min(1),
+      companyName: z.string().min(2),
+      companyJurisdiction: z.string().min(2),
+      registrationNumber: z.string().min(2),
+      taxIdNumber: z.string().optional(),
+      beneficialOwners: z.array(
+        z.object({
+          fullName: z.string().min(2),
+          citizenship: z.string().min(2),
+          ownershipPercentage: z.number().min(0).max(100),
+          taxIdNumber: z.string().optional(),
+          isPep: z.boolean().optional(),
+        })
+      ).min(1),
+      operatingAgreementCid: z.string().optional(),
+    });
+
+    const body = schema.parse(req.body);
+    const result = await whitelistingService.submitKyb(body);
+    res.status(201).json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Review and Approve/Reject KYB Corporate Application (Requires COMPLIANCE or ADMIN role) */
+router.post('/kyb/review', optionalAuth, requireAuth, requireCompliance, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      walletAddress: z.string().min(1),
+      decision: z.enum(['APPROVED', 'REJECTED']),
+    });
+
+    const body = schema.parse(req.body);
+    const result = await whitelistingService.reviewKyb(body.walletAddress, body.decision, req.user!.id);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Whitelist verified wallet on-chain and off-chain (Requires COMPLIANCE or ADMIN role) */
+router.post('/whitelist', optionalAuth, requireAuth, requireCompliance, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      walletAddress: z.string().min(1),
+      countryCode: z.number().optional(),
+      claims: z.array(z.string()).optional(),
+    });
+
+    const body = schema.parse(req.body);
+    const result = await whitelistingService.whitelistWallet(body.walletAddress, {
+      countryCode: body.countryCode,
+      claims: body.claims,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Revoke whitelisting (Requires COMPLIANCE or ADMIN role) */
+router.post('/whitelist/revoke', optionalAuth, requireAuth, requireCompliance, async (req, res, next) => {
+  try {
+    const schema = z.object({
+      walletAddress: z.string().min(1),
+      reason: z.string().min(3),
+    });
+
+    const body = schema.parse(req.body);
+    const result = await whitelistingService.revokeWhitelist(body.walletAddress, body.reason);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Query full whitelisting and KYC/KYB status for an investor wallet */
+router.get('/whitelist/:wallet', optionalAuth, async (req, res, next) => {
+  try {
+    const status = await whitelistingService.getStatus(req.params.wallet);
+    res.json({ status });
   } catch (err) {
     next(err);
   }
