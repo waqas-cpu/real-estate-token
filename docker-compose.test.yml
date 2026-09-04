@@ -1,0 +1,69 @@
+# ============================================================
+# RWA Real Estate Platform — Automated Testing Docker Compose
+# Usage: docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
+# ============================================================
+
+services:
+  # ── Test Database ───────────────────────────────────────────
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: rwa-postgres-test
+    environment:
+      POSTGRES_DB: rwa_test_db
+      POSTGRES_USER: rwa_test_user
+      POSTGRES_PASSWORD: rwa_test_password
+    volumes:
+      - ./scripts/docker/init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh:ro
+      - ./supabase/migrations:/docker-entrypoint-initdb.d/migrations:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rwa_test_user -d rwa_test_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - rwa-test-net
+
+  # ── Test Redis ──────────────────────────────────────────────
+  redis-test:
+    image: redis:7-alpine
+    container_name: rwa-redis-test
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - rwa-test-net
+
+  # ── Smart Contracts Tests & Static Analysis ─────────────────
+  contracts-test:
+    build:
+      context: .
+      dockerfile: contracts/Dockerfile
+    container_name: rwa-contracts-test
+    command: ["sh", "-c", "npm run compile && npm run test"]
+    networks:
+      - rwa-test-net
+
+  # ── Backend Vitest Suite Runner ─────────────────────────────
+  backend-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: rwa-backend-test
+    environment:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://rwa_test_user:rwa_test_password@postgres-test:5432/rwa_test_db
+      REDIS_URL: redis://redis-test:6379/0
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+    command: ["npm", "run", "test"]
+    networks:
+      - rwa-test-net
+
+networks:
+  rwa-test-net:
+    driver: bridge

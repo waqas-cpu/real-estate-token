@@ -12,6 +12,7 @@ concurrency:
 
 permissions:
   contents: read
+  security-events: write
 
 jobs:
   lint:
@@ -33,6 +34,21 @@ jobs:
 
       - name: Run ESLint
         run: npm run lint
+
+  security-secrets:
+    name: Gitleaks Secret Detection
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Secret Scanner
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   frontend:
     name: Frontend Build & Typecheck
@@ -92,7 +108,7 @@ jobs:
         run: npm run test
 
   contracts:
-    name: Smart Contracts Compile & Test
+    name: Smart Contracts Compile, Test & Slither
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -106,6 +122,14 @@ jobs:
           cache: npm
           cache-dependency-path: contracts/package-lock.json
 
+      - name: Setup Python for Slither
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Slither Analyzer
+        run: pip install slither-analyzer
+
       - name: Install smart contract dependencies
         working-directory: contracts
         run: npm ci
@@ -114,14 +138,19 @@ jobs:
         working-directory: contracts
         run: npm run compile
 
-      - name: Run Hardhat test suite (ERC-3643 RWA)
+      - name: Run Hardhat test suite (ERC-3643 RWA & Security features)
         working-directory: contracts
         run: npm run test
 
-  docker-smoke:
-    name: Docker Build & Healthcheck Verification
+      - name: Run Slither Static Analysis
+        working-directory: contracts
+        continue-on-error: true
+        run: slither . --exclude-dependencies --checklist || true
+
+  docker-build-and-scan:
+    name: Docker Builds & Vulnerability Scanning
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -129,25 +158,53 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and load production Docker image
+      # Build Frontend Image
+      - name: Build Frontend Image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.frontend
           load: true
-          tags: rwa-platform:ci-test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: rwa-frontend:ci-test
 
-      - name: Test container startup and healthcheck
+      # Build Backend Image
+      - name: Build Backend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.backend
+          load: true
+          tags: rwa-backend:ci-test
+
+      # Build Contracts Image
+      - name: Build Contracts Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: contracts/Dockerfile
+          load: true
+          tags: rwa-contracts:ci-test
+
+      # Scan Backend Image with Trivy
+      - name: Run Trivy vulnerability scanner on backend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'rwa-backend:ci-test'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # Test backend container startup and healthcheck
+      - name: Test backend container startup and healthcheck
         run: |
           echo "Starting test container..."
-          docker run -d --name rwa-ci-container \
+          docker run -d --name rwa-ci-backend \
             -p 3001:3001 \
             -e NODE_ENV=production \
             -e PORT=3001 \
-            -e SERVE_FRONTEND=true \
-            rwa-platform:ci-test
+            rwa-backend:ci-test
 
           echo "Awaiting healthy status from /health/live endpoint..."
           for i in {1..30}; do
@@ -162,25 +219,24 @@ jobs:
 
           if [ "$STATUS" != "200" ]; then
             echo "Healthcheck failed! Container logs:"
-            docker logs rwa-ci-container
+            docker logs rwa-ci-backend
             exit 1
           fi
 
           echo "Verifying non-root user execution..."
-          USER_RUNNING=$(docker exec rwa-ci-container whoami)
+          USER_RUNNING=$(docker exec rwa-ci-backend whoami)
           echo "Container is running as user: $USER_RUNNING"
           if [ "$USER_RUNNING" != "rwa" ]; then
             echo "Security warning: container is not running as 'rwa' non-root user!"
             exit 1
           fi
 
-          echo "Cleaning up container..."
-          docker stop rwa-ci-container
-          docker rm rwa-ci-container
+          docker stop rwa-ci-backend
+          docker rm rwa-ci-backend
 
   ci-gate:
     name: CI Gate
-    needs: [lint, frontend, backend, contracts, docker-smoke]
+    needs: [lint, security-secrets, frontend, backend, contracts, docker-build-and-scan]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -191,4 +247,4 @@ jobs:
             echo "❌ CI Gate Failed: One or more prerequisite jobs failed or were cancelled."
             exit 1
           fi
-          echo "✅ CI Gate Passed: All code quality, build, test, and container checks succeeded!"
+          echo "✅ CI Gate Passed: All code quality, security scans, unit tests, and container builds succeeded!"

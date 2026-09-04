@@ -1,0 +1,47 @@
+# ============================================================
+# RWA Real Estate Platform — Development Docker Compose Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# Features: Hot-reloading, exposed debug ports, local Hardhat blockchain
+# ============================================================
+
+services:
+  # ── Backend with Hot-Reloading ──────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      LOG_REQUESTS: "true"
+      ALLOW_SMART_CONTRACT_DEPLOY: "true"
+      ALLOW_TOKEN_ECONOMICS_APPLY: "true"
+    volumes:
+      - ./backend/src:/app/backend/src:ro
+      - ./src/lib:/app/src/lib:ro
+    ports:
+      - "127.0.0.1:3001:3001"
+
+  # ── PostgreSQL Local Debug Access ───────────────────────────
+  postgres:
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  # ── Redis Local Debug Access ────────────────────────────────
+  redis:
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  # ── Local Hardhat Blockchain Node ───────────────────────────
+  blockchain:
+    build:
+      context: .
+      dockerfile: contracts/Dockerfile
+    container_name: rwa-hardhat-node
+    ports:
+      - "127.0.0.1:8545:8545"
+    volumes:
+      - ./contracts/src:/app/contracts/src:ro
+      - ./contracts/test:/app/contracts/test:ro
+    networks:
+      - rwa-data
