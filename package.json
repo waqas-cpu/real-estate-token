@@ -17,6 +17,8 @@
     "test:backend": "npm run test --prefix backend",
     "smoke:e2e": "npm run smoke:e2e --prefix backend",
     "prod:check": "npm run typecheck:backend && npm run test:backend",
+    "test:migrations": "npm run test:migrations --prefix backend",
+    "validate:platform": "npm run prod:check && npm run test:migrations && npm run contracts:test",
     "contracts:compile": "npm run compile --prefix contracts",
     "contracts:test": "npm run test --prefix contracts",
     "deploy:testnet": "npm run deploy:sepolia --prefix contracts"

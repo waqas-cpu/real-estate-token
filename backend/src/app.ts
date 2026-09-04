@@ -33,6 +33,7 @@ import intelligenceRouter, {
 import regulatoryRouter from './routes/regulatory.js';
 import anchorsRouter from './routes/anchors.js';
 import databaseLayersRouter from './routes/databaseLayers.js';
+import { createRwaCrudRouter } from './modules/crud/routes/crudRouter.js';
 import { AgentApprovalRequiredError } from './services/IntelligenceAgentService.js';
 import { mountFrontend } from './mountFrontend.js';
 
@@ -59,6 +60,11 @@ export function createApp() {
   app.use('/api/kyc/whitelist', sensitiveActionRateLimiter);
   app.use('/api', optionalAuth);
   app.use('/api', auditApiMutations);
+
+  // Mount production-grade RWA CRUD architecture routers
+  const rwaCrudRouter = createRwaCrudRouter();
+  app.use('/api/v1', rwaCrudRouter);
+  app.use('/api/crud', rwaCrudRouter);
 
   app.use('/api/assets', assetsRouter);
   app.use('/api/marketplace', marketplaceRouter);

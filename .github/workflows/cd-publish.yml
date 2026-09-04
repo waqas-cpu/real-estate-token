@@ -1,4 +1,4 @@
-name: CD Container Release
+name: CD Container Release & Full Platform Shipping
 
 on:
   push:
@@ -15,23 +15,86 @@ on:
         options:
           - staging
           - production
+      apply_migrations:
+        description: "Apply pending database migrations before container rollout"
+        required: true
+        default: true
+        type: boolean
 
 concurrency:
   group: cd-publish-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
-  build-and-publish:
-    name: Build & Publish Container Image (GHCR)
+  preflight-migrations:
+    name: Pre-deployment Database Migration Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event.inputs.apply_migrations != 'false' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Validate Migration Scripts & Order
+        working-directory: backend
+        run: npx tsx scripts/run-migrations.ts --validate
+
+      - name: Apply Migrations to Remote Environment (if configured)
+        if: env.TARGET_DATABASE_URL != ''
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Applying pending migrations to remote database target..."
+          chmod +x scripts/migrate.sh
+          ./scripts/migrate.sh
+
+  build-and-publish-microservices:
+    name: Build & Publish ${{ matrix.service.name }} (GHCR)
+    needs: [preflight-migrations]
+    if: always() && (needs.preflight-migrations.result == 'success' || needs.preflight-migrations.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    outputs:
-      image_tags: ${{ steps.meta.outputs.tags }}
-      image_digest: ${{ steps.build-push.outputs.digest }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: "frontend"
+            dockerfile: "Dockerfile.frontend"
+            image_name: "frontend"
+          - name: "backend"
+            dockerfile: "Dockerfile.backend"
+            image_name: "backend"
+          - name: "indexer"
+            dockerfile: "Dockerfile.indexer"
+            image_name: "indexer"
+          - name: "oracle"
+            dockerfile: "Dockerfile.oracle"
+            image_name: "oracle"
+          - name: "worker"
+            dockerfile: "Dockerfile.worker"
+            image_name: "worker"
+          - name: "contracts"
+            dockerfile: "contracts/Dockerfile"
+            image_name: "contracts"
+          - name: "platform-monolith"
+            dockerfile: "Dockerfile"
+            image_name: "platform"
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,11 +112,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
+      - name: Extract Docker metadata for ${{ matrix.service.name }}
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository }}/${{ matrix.service.image_name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -61,24 +124,57 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' }}
 
-      - name: Build and push production image
+      - name: Build and push ${{ matrix.service.name }} image
         id: build-push
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: ${{ matrix.service.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Emit GitHub Step Summary
+      - name: Emit Step Summary for ${{ matrix.service.name }}
         run: |
-          echo "### 🚀 Container Successfully Published to GHCR" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image Repository**: \`ghcr.io/${{ github.repository }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Image Digest**: \`${{ steps.build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Published Tags**:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Published \`${{ matrix.service.name }}\` to GHCR" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image Repository**: \`ghcr.io/${{ github.repository }}/${{ matrix.service.image_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Digest**: \`${{ steps.build-push.outputs.digest }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tags**: \`${{ steps.meta.outputs.tags }}\`" >> $GITHUB_STEP_SUMMARY
+
+  generate-release-manifest:
+    name: Generate Production Release Manifest
+    needs: [build-and-publish-microservices]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate Release Manifest Bundle
+        run: |
+          mkdir -p release-bundle
+          TAG="${GITHUB_REF_NAME:-latest}"
+          
+          echo "# Pinned RWA Platform Production Release: $TAG" > release-bundle/RELEASE_MANIFEST.md
+          echo "Generated on: $(date -u)" >> release-bundle/RELEASE_MANIFEST.md
+          echo "Commit SHA: $GITHUB_SHA" >> release-bundle/RELEASE_MANIFEST.md
+          echo "" >> release-bundle/RELEASE_MANIFEST.md
+          echo "## Published Images:" >> release-bundle/RELEASE_MANIFEST.md
+          echo "- ghcr.io/${{ github.repository }}/frontend:$TAG" >> release-bundle/RELEASE_MANIFEST.md
+          echo "- ghcr.io/${{ github.repository }}/backend:$TAG" >> release-bundle/RELEASE_MANIFEST.md
+          echo "- ghcr.io/${{ github.repository }}/indexer:$TAG" >> release-bundle/RELEASE_MANIFEST.md
+          echo "- ghcr.io/${{ github.repository }}/oracle:$TAG" >> release-bundle/RELEASE_MANIFEST.md
+          echo "- ghcr.io/${{ github.repository }}/worker:$TAG" >> release-bundle/RELEASE_MANIFEST.md
+          echo "- ghcr.io/${{ github.repository }}/contracts:$TAG" >> release-bundle/RELEASE_MANIFEST.md
+
+          cp docker-compose.yml release-bundle/docker-compose.prod.yml
+          cp .env.example release-bundle/.env.example
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rwa-platform-release-manifest
+          path: release-bundle/
+          retention-days: 30

@@ -15,7 +15,9 @@
     "seed:kensington": "tsx scripts/seed-kensington-property.ts",
     "check:env": "tsx scripts/check-env.ts",
     "verify:schema": "tsx scripts/verify-supabase-schema.ts",
-    "db:migrations": "tsx scripts/print-migration-order.ts"
+    "db:migrations": "tsx scripts/print-migration-order.ts",
+    "test:migrations": "tsx scripts/run-migrations.ts --validate",
+    "run:migrations": "tsx scripts/run-migrations.ts"
   },
   "dependencies": {
     "@noble/post-quantum": "^0.6.1",

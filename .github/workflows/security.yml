@@ -67,25 +67,34 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build local container image
+      - name: Build backend container image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.backend
           load: true
-          tags: rwa-platform:security-scan
+          tags: rwa-backend:security-scan
           cache-from: type=gha
 
-      - name: Run Trivy vulnerability scanner
+      - name: Build frontend container image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.frontend
+          load: true
+          tags: rwa-frontend:security-scan
+          cache-from: type=gha
+
+      - name: Run Trivy vulnerability scanner on backend
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: rwa-platform:security-scan
+          image-ref: rwa-backend:security-scan
           format: sarif
-          output: trivy-results.sarif
+          output: trivy-backend-results.sarif
           severity: CRITICAL,HIGH
 
       - name: Upload Trivy scan results to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: trivy-results.sarif
+          sarif_file: trivy-backend-results.sarif

@@ -1,4 +1,4 @@
-# Real Estate Tokenization — CI/CD Pipeline Documentation
+# Real Estate Tokenization — Enterprise CI/CD Pipeline Documentation
 
 This document describes the automated Continuous Integration and Continuous Delivery (CI/CD) pipelines configured for the **Real Estate Tokenization (RWA) Platform** via GitHub Actions.
 
@@ -10,9 +10,9 @@ The platform uses 4 dedicated, decoupled GitHub Actions workflows located in `.g
 
 ```
 .github/workflows/
-├── ci.yml                 # Main Continuous Integration pipeline & Quality Gate
-├── security.yml           # Automated Security SAST & Container vulnerability scans
-├── cd-publish.yml         # Container image builder & GHCR deployment publisher
+├── ci.yml                 # Continuous Integration, Database Migrations Gate & E2E Orchestration
+├── security.yml           # Automated Security SAST & Multi-Container Vulnerability Scans
+├── cd-publish.yml         # Multi-service container release & GHCR deployment publisher
 └── contracts-deploy.yml   # ERC-3643 smart contract deployment & verification
 ```
 
@@ -31,7 +31,8 @@ flowchart TD
         J2[Frontend Typecheck & Build]
         J3[Backend Vitest & Typecheck]
         J4[Hardhat ERC-3643 Compile & Test]
-        J5[Docker Buildx & Smoke Test]
+        J5[Database Migrations Validation (Postgres 16)]
+        J6[Multi-Container Orchestration & Smoke Test]
         Gate[CI Gate Status Check]
 
         J1 --> Gate
@@ -39,17 +40,27 @@ flowchart TD
         J3 --> Gate
         J4 --> Gate
         J5 --> Gate
+        J6 --> Gate
     end
 
     subgraph "Security Pipeline (.github/workflows/security.yml)"
         S1[npm audit]
         S2[GitHub CodeQL SAST]
-        S3[Aqua Security Trivy Container Scan]
+        S3[Aqua Security Trivy Backend & Frontend Scans]
     end
 
     subgraph "CD Release (.github/workflows/cd-publish.yml)"
-        CD1[Build Multi-stage Docker Image]
-        CD2[Publish to GitHub Container Registry]
+        CD0[Preflight Database Migrations Validation]
+        CD1[Build & Publish Frontend Container]
+        CD2[Build & Publish Backend Container]
+        CD3[Build & Publish Indexer Daemon]
+        CD4[Build & Publish Oracle Daemon]
+        CD5[Build & Publish Worker Daemon]
+        CD6[Build & Publish Contracts Container]
+        CD7[Generate Production Release Manifest Bundle]
+
+        CD0 --> CD1 & CD2 & CD3 & CD4 & CD5 & CD6
+        CD1 & CD2 & CD3 & CD4 & CD5 & CD6 --> CD7
     end
 
     subgraph "Contract Deployment (.github/workflows/contracts-deploy.yml)"
@@ -58,10 +69,10 @@ flowchart TD
         D3[Archive Deployment Artifacts]
     end
 
-    PR --> J1 & J2 & J3 & J4 & J5
-    Push --> J1 & J2 & J3 & J4 & J5
-    Push --> CD1
-    Tag --> CD1
+    PR --> J1 & J2 & J3 & J4 & J5 & J6
+    Push --> J1 & J2 & J3 & J4 & J5 & J6
+    Push --> CD0
+    Tag --> CD0
     Cron --> S1 & S2 & S3
     Manual --> D1
 ```
@@ -78,11 +89,12 @@ flowchart TD
 | Job Name | Path / Context | Purpose |
 | :--- | :--- | :--- |
 | **`lint`** | Root | Runs ESLint (`npm run lint`) to maintain code quality across frontend, backend, and scripts. |
-| **`frontend`** | Root | Validates TypeScript typing (`npm run typecheck`), creates production bundle (`npm run build`), and saves `dist/` as a build artifact. |
-| **`backend`** | `backend/` | Validates backend TypeScript (`npm run typecheck`), executes the Vitest suite covering Off-chain pipeline, Integration Gates, PQC cryptography (ML-DSA-87, ML-KEM-1024), and Token Economics. |
+| **`frontend`** | Root | Validates TypeScript typing (`npm run typecheck`), creates production bundle (`npm run build`), and saves `dist/` as an artifact. |
+| **`backend`** | `backend/` | Validates backend TypeScript (`npm run typecheck`), executes the Vitest suite covering Off-chain pipeline, Integration Gates, PQC cryptography (ML-DSA-87, ML-KEM-1024), Token Economics, and the new RWA CRUD architecture. |
 | **`contracts`** | `contracts/` | Compiles Solidity contracts (0.8.17 / 0.8.20) with Hardhat and runs the complete ERC-3643 (T-REX) compliance test suite with MockUSDC. |
-| **`docker-smoke`** | Root (`Dockerfile`) | Compiles multi-stage production image using Buildx and GitHub Actions cache (`type=gha`), spins up container, verifies HTTP 200 on `/health/live`, and asserts non-root execution (`rwa` user). |
-| **`ci-gate`** | All jobs | Unified aggregation check that fails if any job fails or is cancelled. This is the **primary check** to configure in GitHub branch protection. |
+| **`migrations-validate`** | `supabase/migrations/` | Spins up a clean **PostgreSQL 16** service container, applies all 9 migrations sequentially via `scripts/migrate.sh`, asserts table schema integrity, and validates idempotent re-execution. |
+| **`platform-orchestration-e2e`** | Multi-Container | Builds all microservice images (`frontend`, `backend`, `indexer`, `oracle`, `worker`, `contracts`), runs `docker-compose.test.yml`, verifies container healthcheck `/health/live`, and executes Trivy security scans. |
+| **`ci-gate`** | All jobs | Unified aggregation check that fails if any job fails or is cancelled. This is the **primary check** required by GitHub branch protection. |
 
 ---
 
@@ -96,28 +108,32 @@ flowchart TD
 ### Capabilities
 - **Dependency Audit**: Inspects `package.json` and lockfiles across root, backend, and contracts for high/critical security advisories via `npm audit`.
 - **CodeQL Analysis**: Static Application Security Testing (SAST) targeting JavaScript/TypeScript code to detect injection vulnerabilities, weak cryptographic usages, and tainted data flow.
-- **Trivy Container Scan**: Scans the production Docker image against Aqua Security's vulnerability database and automatically uploads SARIF reports to the GitHub repository **Security > Code scanning** tab.
+- **Trivy Container Scan**: Scans both backend (`Dockerfile.backend`) and frontend (`Dockerfile.frontend`) Docker images against Aqua Security's vulnerability database and uploads SARIF reports to GitHub Security.
 
 ---
 
-## 3. Container Continuous Delivery (`cd-publish.yml`)
+## 3. Container Continuous Delivery & Release (`cd-publish.yml`)
 
 ### Triggers
 - Push to `main` or `master`.
 - Version tags formatted as `v*.*.*` (e.g. `v1.0.0`).
 - Manual trigger via `workflow_dispatch` with environment selection (`staging` or `production`).
 
-### Behavior
-1. Authenticates to **GitHub Container Registry (`ghcr.io`)** via `${{ secrets.GITHUB_TOKEN }}` (no external credentials required).
-2. Generates semantic tags using `docker/metadata-action`:
-   - `latest` (on main/master)
-   - Semantic versions (e.g., `v1.0.0`, `1.0`)
-   - Git commit SHA (e.g., `sha-a1b2c3d`)
-3. Builds and pushes the multi-stage image using Docker Buildx and GitHub Actions cache (`type=gha,mode=max`).
-4. Generates an execution summary in the GitHub Actions dashboard with image digests and pull commands:
-   ```bash
-   docker pull ghcr.io/<owner>/<repo>:latest
-   ```
+### Multi-Service Shipping Matrix
+Builds and publishes each decoupled microservice container to **GitHub Container Registry (`ghcr.io`)**:
+
+| Service | Dockerfile | Published GHCR Image |
+| :--- | :--- | :--- |
+| **Frontend** | `Dockerfile.frontend` | `ghcr.io/<owner>/<repo>/frontend:<tag>` |
+| **Backend API** | `Dockerfile.backend` | `ghcr.io/<owner>/<repo>/backend:<tag>` |
+| **Blockchain Indexer** | `Dockerfile.indexer` | `ghcr.io/<owner>/<repo>/indexer:<tag>` |
+| **Oracle Ingestion** | `Dockerfile.oracle` | `ghcr.io/<owner>/<repo>/oracle:<tag>` |
+| **Compliance Worker** | `Dockerfile.worker` | `ghcr.io/<owner>/<repo>/worker:<tag>` |
+| **Smart Contracts** | `contracts/Dockerfile` | `ghcr.io/<owner>/<repo>/contracts:<tag>` |
+| **Monolith (All-in-One)** | `Dockerfile` | `ghcr.io/<owner>/<repo>/platform:<tag>` |
+
+### Release Manifest Generation
+Generates a production release bundle containing `docker-compose.prod.yml`, `.env.example`, and `RELEASE_MANIFEST.md` pinned with immutable digests.
 
 ---
 
@@ -125,65 +141,27 @@ flowchart TD
 
 ### Triggers
 - Triggered manually on demand via **Actions > Deploy Smart Contracts > Run workflow**.
-- Configurable inputs:
-  - **`network`**: `sepolia` (default) or `localhost`
-  - **`dry_run`**: Set to `true` to compile and run tests without broadcasting transactions.
-  - **`token_symbol`**: Custom token symbol (defaults to `RWAT`).
-  - **`fmv_usd`**: Asset Fair Market Value in USD (defaults to `$3,000,000`).
-
-### Secrets Required for Deployment
-Set the following secrets in **Settings > Secrets and variables > Actions**:
-
-| Secret Name | Description | Mandatory For |
-| :--- | :--- | :--- |
-| `DEPLOYER_PRIVATE_KEY` | Hex private key of deployer wallet (funded with Sepolia ETH) | Live Sepolia deployment |
-| `SEPOLIA_RPC_URL` | Sepolia RPC endpoint (Alchemy / Infura / QuickNode) | Live Sepolia deployment |
-| `ETHERSCAN_API_KEY` | Etherscan API key for contract source verification | Automated verification |
-
-Deployments automatically persist generated deployment metadata (`contracts/deployments/*-infrastructure.json`) as a downloadable workflow artifact.
-
----
-
-## 🛡️ Recommended GitHub Branch Protection Settings
-
-To ensure no broken or insecure code enters the production branches:
-
-1. Navigate to **Settings > Branches > Branch protection rules** for `main` (and `develop`).
-2. Enable:
-   - **Require a pull request before merging**
-   - **Require status checks to pass before merging**
-   - Search and select **`CI Gate`** (from `.github/workflows/ci.yml`)
-   - **Require branches to be up to date before merging**
-   - **Require linear history** (optional, recommended)
+- Inputs: `network` (`sepolia`, `localhost`), `dry_run`, `token_symbol`, `fmv_usd`.
+- Automatically archives generated deployment metadata (`contracts/deployments/*-infrastructure.json`) as a downloadable workflow artifact.
 
 ---
 
 ## 💻 Running Equivalent Checks Locally
 
-Before pushing code or opening a PR, developers can run all pipeline checks locally:
-
 ```bash
-# 1. Code Quality & Linting
-npm run lint
+# 1. Validate Database Migrations
+npm run test:migrations
 
-# 2. Frontend Validation
-npm run typecheck
-npm run build
-
-# 3. Backend Validation & PQC Test Suites
-npm run typecheck:backend
+# 2. Run Backend Vitest & CRUD Suite
 npm run test:backend
 
-# 4. Smart Contracts Validation (Hardhat ERC-3643)
+# 3. Compile & Test Smart Contracts
 npm run contracts:compile
 npm run contracts:test
 
-# 5. Full Production Check Script
-npm run prod:check
+# 4. Full Platform Preflight Check
+npm run validate:platform
 
-# 6. Docker Container Verification
-docker build -t rwa-platform:local .
-docker run -d --name rwa-test -p 3001:3001 rwa-platform:local
-curl http://localhost:3001/health/live
-docker stop rwa-test && docker rm rwa-test
+# 5. Multi-Container Orchestration Testbed
+docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
 ```

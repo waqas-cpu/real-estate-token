@@ -103,7 +103,7 @@ jobs:
         working-directory: backend
         run: npm run typecheck
 
-      - name: Run Vitest backend test suite
+      - name: Run Vitest backend test suite (Unit, Cryptography & CRUD)
         working-directory: backend
         run: npm run test
 
@@ -147,8 +147,64 @@ jobs:
         continue-on-error: true
         run: slither . --exclude-dependencies --checklist || true
 
-  docker-build-and-scan:
-    name: Docker Builds & Vulnerability Scanning
+  migrations-validate:
+    name: Database Migrations & Schema Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: rwa_ci_test
+          POSTGRES_USER: rwa_user
+          POSTGRES_PASSWORD: rwa_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client tools
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply All SQL Migrations (001 to 009)
+        env:
+          DATABASE_URL: postgresql://rwa_user:rwa_ci_password@localhost:5432/rwa_ci_test
+        run: |
+          chmod +x scripts/migrate.sh
+          ./scripts/migrate.sh
+
+      - name: Verify Idempotent Migration Re-execution
+        env:
+          DATABASE_URL: postgresql://rwa_user:rwa_ci_password@localhost:5432/rwa_ci_test
+        run: |
+          echo "Testing second execution to assert idempotency..."
+          ./scripts/migrate.sh
+
+      - name: Validate Core Database Schema & Tables
+        env:
+          PGPASSWORD: rwa_ci_password
+        run: |
+          echo "Asserting core tables exist in PostgreSQL..."
+          REQUIRED_TABLES=("physical_assets" "digital_twins" "oracle_attestations" "security_tokens" "token_offerings" "spvs" "rwa_properties" "rwa_tokens" "rwa_token_allocations" "rwa_investors" "rwa_kyc_verifications" "rwa_wallets" "rwa_transactions" "rwa_audit_logs")
+          for tbl in "${REQUIRED_TABLES[@]}"; do
+            EXISTS=$(psql -h localhost -U rwa_user -d rwa_ci_test -t -A -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='$tbl';")
+            if [ "$EXISTS" -eq 1 ]; then
+              echo "✅ Table $tbl exists."
+            else
+              echo "❌ ERROR: Table $tbl was not created!"
+              exit 1
+            fi
+          done
+          echo "All schema verification assertions passed!"
+
+  platform-orchestration-e2e:
+    name: Platform Multi-Container Orchestration & Smoke Test
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -158,35 +214,27 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build Frontend Image
-      - name: Build Frontend Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.frontend
-          load: true
-          tags: rwa-frontend:ci-test
+      - name: Build All Production Microservice Images
+        run: |
+          echo "Building Frontend Image..."
+          docker build -t rwa-frontend:ci-test -f Dockerfile.frontend .
 
-      # Build Backend Image
-      - name: Build Backend Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.backend
-          load: true
-          tags: rwa-backend:ci-test
+          echo "Building Backend API Image..."
+          docker build -t rwa-backend:ci-test -f Dockerfile.backend .
 
-      # Build Contracts Image
-      - name: Build Contracts Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: contracts/Dockerfile
-          load: true
-          tags: rwa-contracts:ci-test
+          echo "Building Indexer Daemon Image..."
+          docker build -t rwa-indexer:ci-test -f Dockerfile.indexer .
 
-      # Scan Backend Image with Trivy
-      - name: Run Trivy vulnerability scanner on backend image
+          echo "Building Oracle Ingestion Daemon Image..."
+          docker build -t rwa-oracle:ci-test -f Dockerfile.oracle .
+
+          echo "Building Worker Daemon Image..."
+          docker build -t rwa-worker:ci-test -f Dockerfile.worker .
+
+          echo "Building Smart Contracts Image..."
+          docker build -t rwa-contracts:ci-test -f contracts/Dockerfile .
+
+      - name: Run Trivy Vulnerability Scanner on Backend Image
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'rwa-backend:ci-test'
@@ -196,8 +244,22 @@ jobs:
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-      # Test backend container startup and healthcheck
-      - name: Test backend container startup and healthcheck
+      - name: Run Trivy Vulnerability Scanner on Frontend Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'rwa-frontend:ci-test'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Execute Multi-Container Integration Test Suite
+        run: |
+          echo "Running automated integration test compose..."
+          docker compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from backend-test
+
+      - name: Verify Isolated Backend Container & Healthcheck
         run: |
           echo "Starting test container..."
           docker run -d --name rwa-ci-backend \
@@ -236,7 +298,7 @@ jobs:
 
   ci-gate:
     name: CI Gate
-    needs: [lint, security-secrets, frontend, backend, contracts, docker-build-and-scan]
+    needs: [lint, security-secrets, frontend, backend, contracts, migrations-validate, platform-orchestration-e2e]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -247,4 +309,4 @@ jobs:
             echo "❌ CI Gate Failed: One or more prerequisite jobs failed or were cancelled."
             exit 1
           fi
-          echo "✅ CI Gate Passed: All code quality, security scans, unit tests, and container builds succeeded!"
+          echo "✅ CI Gate Passed: All code quality, security scans, unit tests, migrations, and container orchestration tests succeeded!"
