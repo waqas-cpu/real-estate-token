@@ -95,10 +95,12 @@ npm run preview
 # Output: dist/ folder
 ```
 
-### View Documentation
-- **Backend**: See `ARCHITECTURE.md` (400+ sections, production-grade)
-- **Frontend**: See `FRONTEND_GUIDE.md` (UI/UX complete documentation)
-- **Implementation**: See `IMPLEMENTATION_GUIDE.md` (8-phase deployment)
+### 📚 Comprehensive Documentation Index
+- **Master Project Documentation**: See [PROJECT_DOCUMENTATION.md](file:///e:/Real%20estate%20tokenization%20final/real-estate-token/PROJECT_DOCUMENTATION.md) (Complete system architecture, domains, database schemas, smart contracts, APIs, and runbooks)
+- **Infrastructure as Code (IaC)**: See [terraform/README.md](file:///e:/Real%20estate%20tokenization%20final/real-estate-token/terraform/README.md) (Modular AWS Terraform, DR, monitoring, and invariant testing)
+- **Backend Architecture**: See [ARCHITECTURE.md](file:///e:/Real%20estate%20tokenization%20final/real-estate-token/ARCHITECTURE.md) (400+ sections, production-grade microservices guide)
+- **API Integration Guide**: See [API_INTEGRATION_GUIDE.md](file:///e:/Real%20estate%20tokenization%20final/real-estate-token/API_INTEGRATION_GUIDE.md) (REST endpoints, payloads, and post-quantum auth)
+- **CI/CD Pipeline Manual**: See [CI_CD_PIPELINE.md](file:///e:/Real%20estate%20tokenization%20final/real-estate-token/CI_CD_PIPELINE.md) (GitHub Actions build, test, and container publish pipeline)
 
 ---
 
