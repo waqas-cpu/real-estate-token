@@ -24,11 +24,13 @@ services:
 
   # ── PostgreSQL Local Debug Access ───────────────────────────
   postgres:
+    image: postgres:16-alpine
     ports:
       - "127.0.0.1:5432:5432"
 
   # ── Redis Local Debug Access ────────────────────────────────
   redis:
+    image: redis:7-alpine
     ports:
       - "127.0.0.1:6379:6379"
 
@@ -45,3 +47,8 @@ services:
       - ./contracts/test:/app/contracts/test:ro
     networks:
       - rwa-data
+
+networks:
+  rwa-data:
+    name: rwa-network-data
+    driver: bridge
