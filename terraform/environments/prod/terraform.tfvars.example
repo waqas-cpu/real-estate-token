@@ -1,0 +1,10 @@
+aws_region         = "us-east-1"
+project_name       = "rwa-platform"
+vpc_cidr           = "10.30.0.0/16"
+domain_name        = "rwa-platform.com"
+subdomain          = "api"
+db_instance_class  = "db.r6g.xlarge"
+blockchain_network = "mainnet"
+chain_id           = 1
+backend_image_tag  = "v1.0.0"
+worker_image_tag   = "v1.0.0"

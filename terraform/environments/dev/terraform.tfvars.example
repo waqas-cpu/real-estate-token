@@ -1,0 +1,10 @@
+aws_region         = "us-east-1"
+project_name       = "rwa-platform"
+vpc_cidr           = "10.10.0.0/16"
+domain_name        = "" # Set to your Route53 domain if applicable (e.g. "dev.example.com")
+subdomain          = "api-dev"
+db_instance_class  = "db.t4g.medium"
+blockchain_network = "sepolia"
+chain_id           = 11155111
+backend_image_tag  = "latest"
+worker_image_tag   = "latest"

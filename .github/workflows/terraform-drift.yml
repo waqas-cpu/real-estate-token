@@ -1,0 +1,50 @@
+name: "Infrastructure Drift Detection"
+
+on:
+  schedule:
+    # Run every weekday at 04:00 AM UTC
+    - cron: "0 4 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment to inspect for drift"
+        required: true
+        default: "prod"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  detect-drift:
+    name: "Detect Drift (${{ github.event.inputs.environment || 'prod' }})"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.5"
+
+      - name: Check Environment Validation
+        working-directory: terraform/environments/${{ github.event.inputs.environment || 'prod' }}
+        run: |
+          echo "Initiating scheduled drift scan for environment: ${{ github.event.inputs.environment || 'prod' }}"
+          terraform init -backend=false
+          terraform validate
+
+      # In an active AWS account, the following step checks detailed drift:
+      # - name: Check Drift (terraform plan -detailed-exitcode)
+      #   run: |
+      #     terraform plan -detailed-exitcode -no-color || exit_code=$?
+      #     if [ $exit_code -eq 2 ]; then
+      #       echo "DRIFT DETECTED: Actual infrastructure differs from state file."
+      #       # Post alert to GitHub Issues / Slack / SNS
+      #     fi
